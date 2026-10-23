@@ -400,19 +400,29 @@ def utama():
 
             M.jieun_sesi(api, token)
 
-            # cek verif CC / umur dulu
+            # gate: samain persis menu 4 (_sanggeus_auth) -> baca invite_state dulu
             _, ccv = M.intip_status_ccv(api)
-            if ccv in ('not_required', None):
-                try:
-                    out = M.tebus_kode(api, ST['reff'])
-                    log(f"   redeem: {out}")
-                    hasil.append({'i': i, 'status': 'redeemed', 'out': out})
-                except SystemExit as e:
-                    log(f'   redeem berhenti: {e}')
-                    hasil.append({'i': i, 'status': f'redeem_error'})
+            if ccv == 'blocked':
+                log('   ccv_status=blocked — SKIP redeem (age-blocked)')
+                hasil.append({'i': i, 'status': 'skip_ccv_blocked'})
+            elif ccv == 'ccv_required':
+                log('   ccv_status=ccv_required — SKIP redeem (perlu VCC)')
+                hasil.append({'i': i, 'status': 'skip_ccv_required'})
             else:
-                log(f'   ccv_status={ccv!r} — SKIP redeem (kena verif CC/umur)')
-                hasil.append({'i': i, 'status': f'skip_ccv_{ccv}'})
+                uleman = M.pamundut_app(api, 'GET', '/api/hatch/invite', fatal=False)
+                if uleman is None:
+                    log('   /api/hatch/invite 403 — gate VCC/region, SKIP redeem')
+                    hasil.append({'i': i, 'status': 'skip_invite_403'})
+                else:
+                    inv = uleman.json().get('invite_state')
+                    log(f'   invite_state={inv!r}')
+                    try:
+                        out = M.tebus_kode(api, ST['reff'])
+                        log(f"   redeem: {out}")
+                        hasil.append({'i': i, 'status': 'redeemed', 'invite': inv, 'out': out})
+                    except SystemExit as e:
+                        log(f'   redeem berhenti: {e}')
+                        hasil.append({'i': i, 'status': 'redeem_error', 'invite': inv})
 
             # unbind -> bind celana
             celana = surel_celana_anyar()
