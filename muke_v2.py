@@ -19,7 +19,7 @@ Aturan:
   * Email TEMBUS  : diketik manual tiap run. OTP juga dimasukkan manual.
   * Email celana  : cuma buat UNBIND / BIND. Dibuat otomatis, OTP dibaca dari box.
   * Nama          : acak dari daftar nama manusia normal (NGARAN_DEPAN / NGARAN_TUKANG).
-  * DOB           : fixed 12 Desember 2000.
+  * DOB           : fixed 21 Desember 1994.
   * Redeem code   : default FO3DHT.
 
 Reusable dari muke.py (import muke as M).
@@ -47,7 +47,7 @@ ST = {
     'box': 'https://box.celana-ar-store.my.id',
     'reff': 'FO3DHT',
     'jumlah': 1,
-    'dob': '2000-12-12',
+    'dob': '1994-12-21',
     'proxy': '',
 }
 
@@ -143,7 +143,7 @@ def tanya_reff():
 
 
 def tanya_dob():
-    return (M.tanya('tanggal lahir (Enter = 2000-12-12)', meunang_kosong=True).strip() or '2000-12-12')
+    return (M.tanya('tanggal lahir (Enter = 1994-12-21)', meunang_kosong=True).strip() or '1994-12-21')
 
 
 # ------------------------------------------------------------------ setup
