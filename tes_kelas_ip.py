@@ -72,22 +72,28 @@ def cek_egress():
     print(f"  proxy   : {d.get('proxy')}    (True = kena VPN/proxy)")
     print(f"  hosting : {d.get('hosting')}  (True = IP datacenter)")
 
+    # Catatan: IP seluler sering diflag 'hosting=True' sama ip-api (false positive).
+    # Yang menentukan kelas: mobile + tidak kena proxy.
+    kelas_residensial = bool(d.get("mobile")) and not d.get("proxy")
+
     masalah = []
     if d.get("proxy"):
         masalah.append("proxy=True  -> HP masih kena WARP/VPN")
-    if d.get("hosting"):
-        masalah.append("hosting=True -> ini IP datacenter, bukan residensial")
     if not d.get("mobile"):
         masalah.append("mobile=False -> bukan jaringan seluler")
+    if d.get("hosting") and not d.get("mobile"):
+        masalah.append("hosting=True -> ini IP datacenter, bukan residensial")
+    if d.get("hosting") and d.get("mobile"):
+        print("  (catatan: hosting=True di IP seluler biasanya false positive ip-api)")
 
     print()
-    if masalah:
+    if not kelas_residensial:
         print("  *** PERINGATAN: kelas IP ini NON-RESIDENSIAL ***")
         for m in masalah:
             print(f"      - {m}")
         print("  -> Hasil tes ini NGGak bersih. Matiin WARP, pakai data seluler, ulangi.")
     else:
-        print("  >>> Kelas IP: RESIDENSIAL. Tes ini valid, lanjut.")
+        print("  >>> Kelas IP: RESIDENSIAL (seluler, tanpa VPN). Tes ini valid, lanjut.")
     print()
     return d
 
@@ -142,9 +148,15 @@ def jalankan():
     })
 
     try:
-        r = s.get(DASAR + "/", timeout=25)
+        r = s.get(DASAR + "/", timeout=25, allow_redirects=True)
         print(f"[landing] HTTP {r.status_code}")
+    except Exception as e:
+        # Landing page nggak wajib: cookie 'csrf' aja yang nggak dapet,
+        # tapi restart + send-otp tetap jalan. Lanjut aja.
+        print(f"[landing] dilewati ({type(e).__name__}: {str(e)[:60]})")
+        print("[landing] catatan: landing page nggak wajib, lanjut tanpa itu.")
 
+    try:
         r = s.post(DASAR + "/api/auth/native/restart", json={}, timeout=30,
                    headers={"Content-Type": "application/json"})
         print(f"[restart] HTTP {r.status_code}")
