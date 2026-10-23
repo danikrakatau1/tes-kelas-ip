@@ -1,16 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TES KELAS IP — apakah 403 registrationBlocked itu gara-gara kelas IP?
+TES DOMAIN — apakah 403 registrationBlocked itu gara-gara domain email?
+
+STATUS HIPOTESIS (sudah dibuktikan live):
+  kelas IP (residensial / VPN / datacenter) -> BUKAN penyebab.
+    Dites dari 4 kelas IP berbeda, semuanya tetap 403:
+      - SG + Cloudflare WARP (VPN)
+      - US + cloud datacenter
+      - ID + seluler residensial (Telkomsel)
+  Tersisa: DOMAIN email (disposable / catch-all yang reputasinya udah hangus).
 
 CARA PAKAI (di Termux, HP):
-  1. MATIIN Cloudflare WARP dulu
-  2. Pastiin HP jalan di DATA SELULER
-  3. python3 tes_kelas_ip.py
+  Mode 1 - domain lu sendiri:
+      python3 tes_kelas_ip.py
+  Mode 2 - pakai email sendiri (buat tes domain bersih):
+      python3 tes_kelas_ip.py namalu@gmail.com
+    -> nanti diminta OTP, ketik di sini (jangan dikirim ke chat).
 
 Apa yang dicek:
-  - kelas IP keluar (residensial / datacenter / VPN-proxy)
-  - kalau ternyata non-residensial -> hasil tes ini nggak bersih, ulangi sesudah WARP mati
+  - kelas IP keluar (buat catatan)
+  - hasil register-completion (403 = domain bermasalah, 200/201 = domain sehat)
 """
 
 import json
@@ -19,13 +29,11 @@ import re
 import string
 import sys
 import time
-import uuid
 
 DASAR = "https://muse.ai"
 BOX = "https://box.celana-ar-store.my.id"
 DOMAIN = "celana-ar-store.my.id"
 
-# ---- HTTP client: curl_cffi kalau ada, kalau nggak pakai requests biasa ----
 try:
     from curl_cffi import requests as _r
     HTTP_CF = True
@@ -51,14 +59,39 @@ def garis(c="="):
 
 
 def cek_egress():
-    """Kelas IP keluar — ini yang mau kita ukur."""
-    try:
-        r = http_get("http://ip-api.com/json/"
-                     "?fields=status,country,countryCode,regionName,city,isp,org,as,mobile,proxy,hosting,query",
-                     timeout=20)
-        d = r.json()
-    except Exception as e:
-        print(f"[ip] GAGAL baca IP keluar: {type(e).__name__}: {e}")
+    """Kelas IP keluar. Robusto: coba beberapa layanan, nggak pernah crash."""
+    urls = [
+        "http://ip-api.com/json/?fields=status,country,countryCode,regionName,city,isp,org,as,mobile,proxy,hosting,query",
+        "https://ipinfo.io/json",
+    ]
+    d = None
+    for u in urls:
+        try:
+            r = http_get(u, timeout=15)
+            if r.status_code == 200:
+                j = r.json()
+                # normalisasi ipinfo.io -> format ip-api
+                if "query" not in j and "ip" in j:
+                    j["query"] = j.get("ip")
+                    j.setdefault("country", (j.get("country") or ""))
+                    j.setdefault("city", j.get("city") or "")
+                    j.setdefault("isp", j.get("org") or "")
+                    j["mobile"] = False
+                    j["proxy"] = False
+                    j["hosting"] = False
+                d = j
+                break
+        except Exception:
+            continue
+
+    if not d:
+        print()
+        garis()
+        print("IP KELUAR HP INI")
+        garis()
+        print("  [ip] GAGAL baca IP keluar dari semua layanan.")
+        print("  [ip] tes tetap jalan — tapi kelas IP nggak gw catet.")
+        print()
         return None
 
     print()
@@ -66,34 +99,18 @@ def cek_egress():
     print("IP KELUAR HP INI")
     garis()
     print(f"  IP      : {d.get('query')}")
-    print(f"  Negara  : {d.get('country')} ({d.get('countryCode')}) - {d.get('city')}")
-    print(f"  ISP     : {d.get('isp')} / {d.get('org')}  [{d.get('as')}]")
+    print(f"  Negara  : {d.get('country')} - {d.get('city')}")
+    print(f"  ISP     : {d.get('isp')}  [{d.get('as') or ''}]")
     print(f"  mobile  : {d.get('mobile')}   (True = jaringan seluler)")
     print(f"  proxy   : {d.get('proxy')}    (True = kena VPN/proxy)")
     print(f"  hosting : {d.get('hosting')}  (True = IP datacenter)")
 
-    # Catatan: IP seluler sering diflag 'hosting=True' sama ip-api (false positive).
-    # Yang menentukan kelas: mobile + tidak kena proxy.
     kelas_residensial = bool(d.get("mobile")) and not d.get("proxy")
-
-    masalah = []
-    if d.get("proxy"):
-        masalah.append("proxy=True  -> HP masih kena WARP/VPN")
-    if not d.get("mobile"):
-        masalah.append("mobile=False -> bukan jaringan seluler")
-    if d.get("hosting") and not d.get("mobile"):
-        masalah.append("hosting=True -> ini IP datacenter, bukan residensial")
-    if d.get("hosting") and d.get("mobile"):
-        print("  (catatan: hosting=True di IP seluler biasanya false positive ip-api)")
-
-    print()
     if not kelas_residensial:
         print("  *** PERINGATAN: kelas IP ini NON-RESIDENSIAL ***")
-        for m in masalah:
-            print(f"      - {m}")
-        print("  -> Hasil tes ini NGGak bersih. Matiin WARP, pakai data seluler, ulangi.")
+        print("      -> tes kelas IP nggak bersih, tapi tes DOMAIN tetap valid.")
     else:
-        print("  >>> Kelas IP: RESIDENSIAL (seluler, tanpa VPN). Tes ini valid, lanjut.")
+        print("  >>> Kelas IP: RESIDENSIAL (seluler, tanpa VPN).")
     print()
     return d
 
@@ -103,7 +120,8 @@ def bikin_surel():
     return f"{local}@{DOMAIN}"
 
 
-def baca_otp(email, timeout=180, interval=5):
+def baca_otp_box(email, timeout=180, interval=5):
+    """Baca OTP dari box celana-ar-store.my.id."""
     akhir = time.time() + timeout
     kelar = set()
     print(f"[otp] nunggu email masuk ke {email} (maks {timeout}s)...")
@@ -118,8 +136,8 @@ def baca_otp(email, timeout=180, interval=5):
                     mr = http_get(f"{BOX}/api/read",
                                   params={"address": email, "id": m.get("id")}, timeout=10)
                     if mr.status_code == 200:
-                        d = mr.json()
-                        teks = f"{d.get('subject','')} {d.get('body','')}"
+                        dd = mr.json()
+                        teks = f"{dd.get('subject','')} {dd.get('body','')}"
                         mt = re.search(r"\b(\d{6})\b", teks)
                         if mt:
                             print(f"[otp] kode diterima: {mt.group(1)}")
@@ -130,9 +148,32 @@ def baca_otp(email, timeout=180, interval=5):
     return None
 
 
-def jalankan():
-    email = bikin_surel()
+def baca_otp(email, timeout=180, interval=5):
+    """OTP: otomatis kalau domain box, manual kalau email lu sendiri."""
+    if email.endswith("@" + DOMAIN):
+        return baca_otp_box(email, timeout, interval)
+
+    print()
+    print(f"[otp] OTP dikirim ke {email}")
+    print("[otp] (ketik di sini, jangan dikirim ke chat siapa pun)")
+    batas = time.time() + timeout
+    while time.time() < batas:
+        try:
+            kode = input("  OTP (6 digit): ").strip()
+        except EOFError:
+            time.sleep(5)
+            continue
+        if re.fullmatch(r"\d{6}", kode):
+            return kode
+        print("  format salah, coba lagi.")
+    return None
+
+
+def jalankan(email=None):
+    if not email:
+        email = bikin_surel()
     print(f"\n[email] {email}")
+    print(f"[email] pakai domain sendiri? {'YA' if email.endswith('@'+DOMAIN) else 'TIDAK (email lu)'}")
 
     s = _r.Session()
     s.headers.update({
@@ -147,14 +188,12 @@ def jalankan():
         "Sec-Fetch-Dest": "empty",
     })
 
+    # Landing page OPSIONAL (gw tes: tanpa landing, restart + send-otp tetap jalan)
     try:
         r = s.get(DASAR + "/", timeout=25, allow_redirects=True)
         print(f"[landing] HTTP {r.status_code}")
     except Exception as e:
-        # Landing page nggak wajib: cookie 'csrf' aja yang nggak dapet,
-        # tapi restart + send-otp tetap jalan. Lanjut aja.
         print(f"[landing] dilewati ({type(e).__name__}: {str(e)[:60]})")
-        print("[landing] catatan: landing page nggak wajib, lanjut tanpa itu.")
 
     try:
         r = s.post(DASAR + "/api/auth/native/restart", json={}, timeout=30,
@@ -172,7 +211,7 @@ def jalankan():
         if r.status_code not in (200, 201):
             return None
 
-        time.sleep(random.uniform(10, 25))
+        time.sleep(random.uniform(8, 15))
         otp = baca_otp(email)
         if not otp:
             print("[otp] OTP TIDAK DATANG")
@@ -203,14 +242,21 @@ def jalankan():
 
 def main():
     print()
-    print("  TES KELAS IP - muse.ai")
-    print("  Tujuan: apakah 403 registrationBlocked gara-gara kelas IP?")
+    print("  TES DOMAIN - muse.ai")
+    print("  Tujuan: apakah 403 registrationBlocked gara-gara domain email?")
     print(f"  HTTP client: {'curl_cffi' if HTTP_CF else 'requests (fallback)'}")
+
+    email = None
+    if len(sys.argv) > 1 and "@" in sys.argv[1]:
+        email = sys.argv[1].strip()
+        print(f"  Mode: email sendiri ({email})")
+    else:
+        print(f"  Mode: domain {DOMAIN}")
 
     cek_egress()
 
     print("Mulai registrasi...")
-    hasil = jalankan()
+    hasil = jalankan(email)
 
     garis()
     print("HASIL TES")
@@ -221,13 +267,13 @@ def main():
         kode, teks = hasil
         if kode in (200, 201):
             print("  >>> BERHASIL <<<")
-            print("  Artinya: kelas IP residensial BISA menembus.")
-            print("  Kesimpulan: penyebab 403 itu KELAS IP, bukan domain.")
+            print("  Artinya: domain ini LOLOS.")
+            print("  Kesimpulan: penyebab 403 itu DOMAIN (domain lu yang hangus).")
         else:
             print(f"  >>> GAGAL: HTTP {kode}")
             print(f"  {teks}")
             if kode == 403 and "registrationBlocked" in teks:
-                print("  Artinya: IP residensial pun tetap diblokir.")
+                print("  Artinya: domain ini diblokir di langkah terakhir.")
                 print("  Kesimpulan: penyebabnya DOMAIN, bukan kelas IP.")
     garis()
     print("  Kirim ke gw:")
