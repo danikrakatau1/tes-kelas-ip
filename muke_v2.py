@@ -369,7 +369,7 @@ def utama():
         status, token, acct = login_atau_daftar(api, csrf, ST['tembus'], ST['dob'])
         log(f'   status = {status}  frl_account_id = {acct}')
 
-        if status == 'login':
+        if status in ('login', 'register', '2fa'):
             M.jieun_sesi(api, token)
             celana = surel_celana_anyar()
             log(f'\n── [2] UNBIND {ST["tembus"]} -> {celana} ──')
@@ -377,7 +377,7 @@ def utama():
             log('\n── [3] LOGOUT ──')
             logout(api)
         else:
-            log('   email tembus belum terdaftar (status=%s) — skip unbind, lanjut loop' % status)
+            log('   status tak dikenal — skip unbind, lanjut loop')
             logout(api)
     except SystemExit as e:
         log(f'   [login] berhenti: {e}')
