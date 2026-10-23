@@ -71,14 +71,14 @@ def cek_egress():
             if r.status_code == 200:
                 j = r.json()
                 # normalisasi ipinfo.io -> format ip-api
+                # CATATAN: ipinfo.io nggak kasih info kelas (mobile/proxy/hosting).
+                # Kita tandai 'unknown' supaya nggak salah klasifikasi.
                 if "query" not in j and "ip" in j:
                     j["query"] = j.get("ip")
                     j.setdefault("country", (j.get("country") or ""))
                     j.setdefault("city", j.get("city") or "")
                     j.setdefault("isp", j.get("org") or "")
-                    j["mobile"] = False
-                    j["proxy"] = False
-                    j["hosting"] = False
+                    j["_sumber"] = "ipinfo.io"
                 d = j
                 break
         except Exception:
@@ -106,7 +106,9 @@ def cek_egress():
     print(f"  hosting : {d.get('hosting')}  (True = IP datacenter)")
 
     kelas_residensial = bool(d.get("mobile")) and not d.get("proxy")
-    if not kelas_residensial:
+    if d.get("_sumber") == "ipinfo.io":
+        print("  (catatan: ipinfo.io nggak kasih kelas -> kelas IP nggak dinilai)")
+    elif not kelas_residensial:
         print("  *** PERINGATAN: kelas IP ini NON-RESIDENSIAL ***")
         print("      -> tes kelas IP nggak bersih, tapi tes DOMAIN tetap valid.")
     else:
