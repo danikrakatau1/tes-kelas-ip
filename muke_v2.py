@@ -286,6 +286,28 @@ def unbind_bind(api, surel_lama, surel_baru):
     return True
 
 
+def klik_get_started(api):
+    """Klik tombol 'Get started' di /access/disclosure (accept-tos).
+
+    Ini penentu nasib akun:
+      - muse.ai/          -> SUKSES (akun eligible, bisa redeem reff)
+      - /access           -> GAGAL (waitlist / region lock)
+      - /verification     -> GAGAL (kena gate VCC)
+    """
+    log('   [get-started] klik tombol "Get started" di /access/disclosure ...')
+    try:
+        M.satuju_tos(api)
+    except SystemExit as e:
+        log(f'   [get-started] accept-tos berhenti: {e}')
+    try:
+        r = api.get(M.DASAR_MUSE + '/access/disclosure', allow_redirects=False,
+                    headers={'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                             'Referer': M.DASAR_MUSE + '/'}, timeout=25)
+        log(f'   [get-started] /access/disclosure -> HTTP {r.status_code} loc={r.headers.get("location")}')
+    except Exception as e:
+        log(f'   [get-started] cek tujuan gagal: {type(e).__name__}: {e}')
+
+
 def logout(api):
     try:
         api.cookies.clear()
@@ -371,6 +393,7 @@ def utama():
 
         if status in ('login', 'register', '2fa'):
             M.jieun_sesi(api, token)
+            klik_get_started(api)
             celana = surel_celana_anyar()
             log(f'\n── [2] UNBIND {ST["tembus"]} -> {celana} ──')
             unbind_bind(api, ST['tembus'], celana)
@@ -399,6 +422,7 @@ def utama():
                 continue
 
             M.jieun_sesi(api, token)
+            klik_get_started(api)
 
             # gate: samain persis menu 4 (_sanggeus_auth) -> baca invite_state dulu
             _, ccv = M.intip_status_ccv(api)
