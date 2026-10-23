@@ -32,7 +32,10 @@ import time
 
 DASAR = "https://muse.ai"
 BOX = "https://box.celana-ar-store.my.id"
-DOMAIN = "celana-ar-store.my.id"
+# Domain pilihan. Default: yang SEGAR (dini-faqih), bukan yang udah hangus.
+DOMAIN = "dini-faqih.my.id"
+DOMAIN_LAMA = "celana-ar-store.my.id"
+DOMAIN_LIST = [DOMAIN, DOMAIN_LAMA]
 
 try:
     from curl_cffi import requests as _r
@@ -117,9 +120,10 @@ def cek_egress():
     return d
 
 
-def bikin_surel():
+def bikin_surel(domain=None):
+    d = domain or DOMAIN
     local = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
-    return f"{local}@{DOMAIN}"
+    return f"{local}@{d}"
 
 
 def baca_otp_box(email, timeout=180, interval=5):
@@ -152,7 +156,7 @@ def baca_otp_box(email, timeout=180, interval=5):
 
 def baca_otp(email, timeout=180, interval=5):
     """OTP: otomatis kalau domain box, manual kalau email lu sendiri."""
-    if email.endswith("@" + DOMAIN):
+    if any(email.endswith("@" + d) for d in DOMAIN_LIST):
         return baca_otp_box(email, timeout, interval)
 
     print()
@@ -248,12 +252,58 @@ def main():
     print("  Tujuan: apakah 403 registrationBlocked gara-gara domain email?")
     print(f"  HTTP client: {'curl_cffi' if HTTP_CF else 'requests (fallback)'}")
 
+    arg = sys.argv[1].strip().lower() if len(sys.argv) > 1 else ""
+
+    # Mode: banding (dua domain sekaligus) / celana (domain lama) / email sendiri / default
+    if arg == "banding":
+        print(f"  Mode: BANDING -> {DOMAIN} (segar) vs {DOMAIN_LAMA} (hangus)")
+        cek_egress()
+        hasil = {}
+        for i, d in enumerate(DOMAIN_LIST):
+            if i:
+                print("\n[jeda 40s biar nggak kena rate limit...]\n")
+                time.sleep(40)
+            print(f"\n### DOMAIN: {d} ###")
+            hasil[d] = jalankan(bikin_surel(d))
+        garis()
+        print("HASIL BANDING")
+        garis()
+        for d in DOMAIN_LIST:
+            h = hasil.get(d)
+            if h is None:
+                print(f"  {d:32s} -> nggak selesai")
+            else:
+                kode = h[0]
+                status = "LOLOS" if kode in (200, 201) else f"GAGAL HTTP {kode}"
+                print(f"  {d:32s} -> {status}")
+        garis()
+        segar = hasil.get(DOMAIN)
+        lama = hasil.get(DOMAIN_LAMA)
+        if segar and lama and segar[0] in (200, 201) and lama[0] not in (200, 201):
+            print("  >>> Domain SEGAR lolos, domain HANGUS gagal.")
+            print("  >>> TERTUTUP: penyebabnya DOMAIN. Solusi: domain bersih + rotasi.")
+        elif segar and lama and segar[0] not in (200, 201) and lama[0] not in (200, 201):
+            print("  >>> Dua-duanya gagal.")
+            print("  >>> Domain segar pun diblokir -> curiga jalur HTTP-nya, bukan domain.")
+        elif segar and segar[0] in (200, 201) and lama and lama[0] in (200, 201):
+            print("  >>> Dua-duanya lolos?! Ada yang aneh, cek manual.")
+        else:
+            print("  >>> Lihat detail per-domain di atas.")
+        garis()
+        print("  Kirim ke gw: blok HASIL BANDING di atas")
+        print()
+        return
+
     email = None
-    if len(sys.argv) > 1 and "@" in sys.argv[1]:
+    if arg and "@" in arg:
         email = sys.argv[1].strip()
         print(f"  Mode: email sendiri ({email})")
+    elif arg == "celana":
+        email = bikin_surel(DOMAIN_LAMA)
+        print(f"  Mode: domain LAMA ({DOMAIN_LAMA})")
     else:
-        print(f"  Mode: domain {DOMAIN}")
+        email = bikin_surel(DOMAIN)
+        print(f"  Mode: domain SEGAR ({DOMAIN})")
 
     cek_egress()
 
