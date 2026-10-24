@@ -411,16 +411,35 @@ def surel_sakedap_anyar():
         sys.exit(1)
     return surel
 
+DOMAIN_TEMP = {'celana-ar-store.my.id', 'dini-faqih.my.id'}
+
+
 def antos_otp(surel, timeout=150, id_diabaikan=frozenset()):
+    """Baca OTP dari inbox `surel`. BUG LAMA: surel diabaikan, selalu baca
+    _GLOBAL_MAIL_OBJ (sisa run sebelumnya) -> OTP jadul -> confirm-otp 400."""
     global _GLOBAL_MAIL_OBJ
     if not _GLOBAL_MAIL_OBJ:
         print("[-] TempMail belum diinisialisasi")
         sys.exit(1)
-    otp = _GLOBAL_MAIL_OBJ.wait_for_otp(timeout=timeout, interval=5)
-    if not otp:
-        print("[-] OTP tidak datang")
-        sys.exit(1)
-    return otp
+    tm = _GLOBAL_MAIL_OBJ
+    if getattr(tm, 'email', None) != surel:
+        tm.email = surel
+    domain = surel.split('@')[-1].lower()
+    if domain in DOMAIN_TEMP:
+        otp = tm.wait_for_otp(timeout=timeout, interval=5)
+        if not otp:
+            print("[-] OTP tidak datang")
+            sys.exit(1)
+        return otp
+    # email biasa (Gmail dll) — box temp-mail tidak bisa baca, tanya user
+    try:
+        manual = input(warna(f"» OTP dikirim ke {surel} — ketik kode OTP (6 digit): ", "g")).strip()
+    except (EOFError, KeyboardInterrupt):
+        manual = ''
+    if re.fullmatch(r'\d{6}', manual):
+        return manual
+    print("[-] OTP tidak valid / tidak ada")
+    sys.exit(1)
 
 def candak_kotak(surel):
     return []
