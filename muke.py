@@ -323,6 +323,7 @@ def simpen_akun(api):
     catet('save-account', f"saved={r.json().get('saved')}")
 
 def jieun_sesi(api, token_akses_frl):
+    global _LANDING_AKHIR
     
 
 
@@ -336,6 +337,19 @@ def jieun_sesi(api, token_akses_frl):
             break
         r = api.get(lokasi, headers={'Referer': DASAR_MUSE + '/'}, allow_redirects=False, timeout=30)
     catet('bootstrap', f'sesi aktif (akhir: {r.url[:60]})')
+    _LANDING_AKHIR = r.url
+
+def _ada_region_lock():
+    """Landing https://muse.ai/access = akun terkunci region (IP non-US).
+
+    /access/disclosure (eligible) dan /access/verification (gerbang VCC) BUKAN lock.
+    """
+    if not _LANDING_AKHIR:
+        return False
+    u = _LANDING_AKHIR.split('?')[0].rstrip('/')
+    if 'facebook.com' in u:
+        return False
+    return u.endswith('/access')
 
 def _sesi_surel():
     s = cr.Session(impersonate='chrome', proxies=PROKSI)
@@ -572,6 +586,7 @@ def pamungkas_checkout(api, id_sesi_upl, id_sesi_otc, data_awal, product_id, rec
     return data
 OTP_PANYADIA = None
 VCC_PANYADIA = None
+_LANDING_AKHIR = None
 
 def _asup_biasa(api, csrf, surel):
     
@@ -757,6 +772,11 @@ def _alur_gerbang_vcc(api):
 
 
 def _sanggeus_auth(api, kode_reff=None):
+    if _ada_region_lock():
+        KONF["region_lock"] = True
+        catet('gate', f'REGION LOCK (IP non-US): landing {(_LANDING_AKHIR or "")[:60]} '
+                     '— akun tak bisa redeem/VCC, ganti VPN/proxy US')
+        return None
     simpen_akun(api)
     satuju_tos(api)
                                                                       
@@ -773,7 +793,7 @@ def _sanggeus_auth(api, kode_reff=None):
                                                                    
         uleman = pamundut_app(api, 'GET', '/api/hatch/invite', fatal=False)
         if uleman is None:
-            catet('gate', 'invite 403 + ccv-status tak terbaca: gate VCC')
+            catet('gate', 'invite 403 + ccv-status tak terbaca (mungkin region lock): coba VCC')
             uleman = _alur_gerbang_vcc(api)
     catet('invite', f"invite_state={uleman.json().get('invite_state')}")
     if kode_reff:
@@ -1745,12 +1765,19 @@ def _daptar_otomatis_hiji(wanda, surel):
     KONF["ref_code"] = wanda["reff"]
     KONF["vcc"] = {"number": "", "expiry": "", "cvv": "", "zip": "", "country": ""}
     KONF["gate_vcc_hit"] = False
+    KONF["region_lock"] = False
     try:
         sae = alur_daptar_cli(surel)
+        if KONF.get("region_lock"):
+            return "Region Lock"
         return "Berhasil Aman" if sae else "Gagal"
     except SystemExit:
+        if KONF.get("region_lock"):
+            return "Region Lock"
         return "Kena VCC" if KONF.get("gate_vcc_hit") else "Gagal"
     except Exception as e:
+        if KONF.get("region_lock"):
+            return "Region Lock"
         return "Kena VCC" if KONF.get("gate_vcc_hit") else f"Gagal: {type(e).__name__}"
 
 
